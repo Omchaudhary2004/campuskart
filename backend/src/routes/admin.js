@@ -204,6 +204,10 @@ router.post("/tasks/:id/release-payment", async (req, res) => {
     if (release_to === "student") {
       // Pay the student
       const studentId = task.assigned_student_id;
+      if (!studentId) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Task has no assigned student" });
+      }
       await ledger(client, studentId, {
         amount_inr: amount,
         amount_cc: amount * 10,
@@ -216,6 +220,11 @@ router.post("/tasks/:id/release-payment", async (req, res) => {
       await client.query(
         `UPDATE tasks SET status = 'completed', updated_at = NOW() WHERE id = $1`,
         [task.id]
+      );
+      // Mark escrow as released
+      await client.query(
+        `UPDATE escrow_holds SET status = 'released', released_at = NOW() WHERE id = $1`,
+        [hold.id]
       );
     } else {
       // Refund the client
@@ -234,13 +243,12 @@ router.post("/tasks/:id/release-payment", async (req, res) => {
         `UPDATE tasks SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
         [task.id]
       );
+      // Mark escrow as refunded
+      await client.query(
+        `UPDATE escrow_holds SET status = 'refunded', released_at = NOW() WHERE id = $1`,
+        [hold.id]
+      );
     }
-
-    // Mark escrow as released
-    await client.query(
-      `UPDATE escrow_holds SET status = 'released', released_at = NOW() WHERE id = $1`,
-      [hold.id]
-    );
     await client.query("COMMIT");
 
     res.json({ ok: true, released_to: release_to, amount_inr: amount });

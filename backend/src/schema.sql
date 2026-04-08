@@ -6,7 +6,14 @@ CREATE TYPE task_status AS ENUM ('open', 'in_progress', 'completed', 'cancelled'
 CREATE TYPE bid_status AS ENUM ('pending', 'accepted', 'rejected');
 CREATE TYPE escrow_status AS ENUM ('held', 'released', 'refunded');
 CREATE TYPE ledger_type AS ENUM (
-  'deposit', 'escrow_lock', 'escrow_release', 'withdrawal', 'cc_convert', 'cc_earn', 'admin_adjust'
+  'deposit',
+  'escrow_lock',
+  'escrow_release',
+  'escrow_refund',
+  'withdrawal',
+  'cc_convert',
+  'cc_earn',
+  'admin_adjust'
 );
 CREATE TYPE withdrawal_status AS ENUM ('pending', 'processing', 'completed', 'failed');
 CREATE TYPE report_status AS ENUM ('open', 'approved', 'rejected');

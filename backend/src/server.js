@@ -7,6 +7,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
+import { query } from "./db.js";
 import authRoutes from "./routes/auth.js";
 import userRoutes from "./routes/users.js";
 import taskRoutes from "./routes/tasks.js";
@@ -25,6 +26,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const uploadDir = path.join(__dirname, "../uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+async function ensureDbEnums() {
+  // Keep runtime compatible with existing DBs when enum values evolve.
+  // Safe to run on every boot; IF NOT EXISTS prevents errors.
+  try {
+    await query(`ALTER TYPE ledger_type ADD VALUE IF NOT EXISTS 'escrow_refund'`);
+  } catch (e) {
+    // If DB isn't ready or enum doesn't exist yet, don't block startup here.
+    // The API will still surface DB errors on first use.
+    console.warn("DB enum check skipped:", e?.message || e);
+  }
+}
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(
@@ -59,6 +72,8 @@ app.use((err, _req, res, _next) => {
 });
 
 const port = Number(process.env.PORT || 4000);
-app.listen(port, () => {
-  console.log(`CampusKart API listening on :${port}`);
+ensureDbEnums().finally(() => {
+  app.listen(port, () => {
+    console.log(`CampusKart API listening on :${port}`);
+  });
 });
