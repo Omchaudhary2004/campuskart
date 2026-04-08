@@ -319,7 +319,6 @@ router.post("/:id/complete", authMiddleware, async (req, res) => {
        VALUES ($1,'skill',$2,$3,$4,$5,$6)`,
       [
         studentId,
-        task.category,
         `Delivered: ${task.title}`,
         proposal.slice(0, 2000),
         "Project",
@@ -341,6 +340,69 @@ router.post("/:id/complete", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Complete failed" });
   } finally {
     client.release();
+  }
+});
+
+/* ── Built-in chat ─────────────────────────────────────── */
+router.get("/:id/messages", authMiddleware, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT messages, client_id, assigned_student_id, status FROM tasks WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Task not found" });
+    const task = rows[0];
+    const uid = req.user.id;
+    const allowed =
+      task.client_id === uid ||
+      task.assigned_student_id === uid ||
+      req.user.role === "admin";
+    if (!allowed) return res.status(403).json({ error: "Not a participant of this task" });
+    if (task.status !== "in_progress" && task.status !== "completed") {
+      return res.status(400).json({ error: "Chat only available for in-progress or completed tasks" });
+    }
+    res.json({ messages: task.messages || [] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to fetch messages" });
+  }
+});
+
+router.post("/:id/messages", authMiddleware, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+    const { rows } = await query(
+      `SELECT client_id, assigned_student_id, status FROM tasks WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Task not found" });
+    const task = rows[0];
+    const uid = req.user.id;
+    const allowed =
+      task.client_id === uid ||
+      task.assigned_student_id === uid ||
+      req.user.role === "admin";
+    if (!allowed) return res.status(403).json({ error: "Not a participant of this task" });
+    if (task.status !== "in_progress") {
+      return res.status(400).json({ error: "Chat only available for in-progress tasks" });
+    }
+    const newMsg = {
+      uid: req.user.id,
+      name: req.user.name,
+      message: String(message).trim().slice(0, 2000),
+      timestamp: new Date().toISOString(),
+    };
+    const { rows: updated } = await query(
+      `UPDATE tasks SET messages = messages || $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING messages`,
+      [JSON.stringify([newMsg]), req.params.id]
+    );
+    res.status(201).json({ message: newMsg, messages: updated[0].messages });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to send message" });
   }
 });
 

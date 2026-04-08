@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query, pool } from "../db.js";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { isEduEmail } from "../utils/email.js";
+import { ledger, adjustPendingEarnings } from "../services/wallet.js";
 
 const router = Router();
 router.use(authMiddleware, requireRole("admin"));
@@ -161,6 +162,95 @@ router.post("/promote-admin", async (req, res) => {
   }
   await query(`UPDATE users SET role = 'admin' WHERE email = $1`, [email.toLowerCase().trim()]);
   res.json({ ok: true });
+});
+
+/* ── Release payment to either client or student ── */
+router.post("/tasks/:id/release-payment", async (req, res) => {
+  const { release_to } = req.body; // "client" or "student"
+  if (!["client", "student"].includes(release_to)) {
+    return res.status(400).json({ error: 'release_to must be "client" or "student"' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // 1. Lock the task
+    const { rows: tr } = await client.query(
+      `SELECT * FROM tasks WHERE id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    if (!tr.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Task not found" });
+    }
+    const task = tr[0];
+    if (task.status !== "in_progress") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Task is not in_progress" });
+    }
+
+    // 2. Find held escrow
+    const { rows: esc } = await client.query(
+      `SELECT * FROM escrow_holds WHERE task_id = $1 AND status = 'held' FOR UPDATE`,
+      [task.id]
+    );
+    if (!esc.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "No held escrow for this task" });
+    }
+    const hold = esc[0];
+    const amount = Number(hold.amount_inr);
+
+    if (release_to === "student") {
+      // Pay the student
+      const studentId = task.assigned_student_id;
+      await ledger(client, studentId, {
+        amount_inr: amount,
+        amount_cc: amount * 10,
+        type: "escrow_release",
+        reference_type: "task",
+        reference_id: task.id,
+        note: `Admin released payment for "${task.title}"`,
+      });
+      await adjustPendingEarnings(client, studentId, -amount);
+      await client.query(
+        `UPDATE tasks SET status = 'completed', updated_at = NOW() WHERE id = $1`,
+        [task.id]
+      );
+    } else {
+      // Refund the client
+      await ledger(client, task.client_id, {
+        amount_inr: amount,
+        type: "escrow_refund",
+        reference_type: "task",
+        reference_id: task.id,
+        note: `Admin refunded escrow for "${task.title}"`,
+      });
+      // Remove student's pending earnings
+      if (task.assigned_student_id) {
+        await adjustPendingEarnings(client, task.assigned_student_id, -amount);
+      }
+      await client.query(
+        `UPDATE tasks SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+        [task.id]
+      );
+    }
+
+    // Mark escrow as released
+    await client.query(
+      `UPDATE escrow_holds SET status = 'released', released_at = NOW() WHERE id = $1`,
+      [hold.id]
+    );
+    await client.query("COMMIT");
+
+    res.json({ ok: true, released_to: release_to, amount_inr: amount });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error(e);
+    res.status(500).json({ error: "Release payment failed" });
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

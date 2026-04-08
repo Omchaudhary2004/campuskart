@@ -13,6 +13,8 @@ export default function TaskDetail() {
   const [review, setReview] = useState({ rating: 5, comment: "" });
   const [msg, setMsg] = useState("");
   const [reportReason, setReportReason] = useState("");
+  const [reportStatus, setReportStatus] = useState(""); // "" | "ok" | "err"
+  const [reportErr, setReportErr] = useState("");
 
   const load = () => api(`/api/tasks/${id}`).then(setData).catch(() => setData(null));
 
@@ -32,8 +34,6 @@ export default function TaskDetail() {
   const isClient = user && task.client_user_id === user.id;
   const isStudent = user && user.role === "student";
   const assigned = task.assigned_student_id;
-  const peerId =
-    user?.id === task.client_user_id ? task.assigned_student_id : user?.id === assigned ? task.client_user_id : null;
 
   const placeBid = async (e) => {
     e.preventDefault();
@@ -104,15 +104,24 @@ export default function TaskDetail() {
 
   const report = async () => {
     if (!reportReason.trim()) return;
+    if (!user) { setReportErr("You must be signed in to report."); setReportStatus("err"); return; }
+    setReportStatus("");
+    setReportErr("");
     try {
       await api("/api/reports", {
         method: "POST",
         body: { entity_type: "task", entity_id: id, reason: reportReason },
       });
-      setMsg("Report filed.");
+      setReportStatus("ok");
       setReportReason("");
     } catch (err) {
-      setMsg(err.data?.error || err.message);
+      const errMsg =
+        typeof err?.data?.error === "string" ? err.data.error :
+        typeof err?.message === "string" ? err.message :
+        "Report failed — please try again.";
+      setReportErr(errMsg);
+      setReportStatus("err");
+      console.error("[report]", err);
     }
   };
 
@@ -147,12 +156,13 @@ export default function TaskDetail() {
                   Complete task & release pay
                 </button>
               )}
-              {user && task.status === "in_progress" && peerId && (
+              {user && task.status === "in_progress" &&
+                (user.id === task.client_user_id || user.id === assigned) && (
                 <Link
-                  to={`/chat?peer=${peerId}`}
+                  to={`/chat?task=${id}`}
                   className="ck-btn-secondary"
                 >
-                  Chat
+                  💬 Chat
                 </Link>
               )}
             </div>
@@ -276,20 +286,28 @@ export default function TaskDetail() {
             </div>
           )}
 
-          <div className="mt-10 flex flex-wrap gap-3 border-t border-slate-100 pt-6">
-            <input
-              className="ck-input max-w-md flex-1"
-              placeholder="Report reason"
-              value={reportReason}
-              onChange={(e) => setReportReason(e.target.value)}
-            />
-            <button type="button" className="ck-btn-secondary" onClick={report}>
-              Report task
-            </button>
-            {user && task.status === "in_progress" && (user.id === task.client_user_id || user.id === assigned) && (
-              <button type="button" className="ck-btn-secondary" onClick={openDispute}>
-                Open dispute
+          <div className="mt-10 border-t border-slate-100 pt-6">
+            <div className="flex flex-wrap gap-3">
+              <input
+                className="ck-input max-w-md flex-1"
+                placeholder="Report reason"
+                value={reportReason}
+                onChange={(e) => { setReportReason(e.target.value); setReportStatus(""); setReportErr(""); }}
+              />
+              <button type="button" className="ck-btn-secondary" onClick={report}>
+                Report task
               </button>
+              {user && task.status === "in_progress" && (user.id === task.client_user_id || user.id === assigned) && (
+                <button type="button" className="ck-btn-secondary" onClick={openDispute}>
+                  Open dispute
+                </button>
+              )}
+            </div>
+            {reportStatus === "ok" && (
+              <p className="mt-3 text-sm font-semibold text-green-600">✅ Report filed successfully. Our team will review it.</p>
+            )}
+            {reportStatus === "err" && (
+              <p className="mt-3 text-sm font-semibold text-red-600">❌ {reportErr}</p>
             )}
           </div>
 

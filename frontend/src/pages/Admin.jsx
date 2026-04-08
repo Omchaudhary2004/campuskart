@@ -182,21 +182,63 @@ export default function Admin() {
       {tab === "tasks" && (
         <div className="mt-6 space-y-3">
           {tasks.map((t) => (
-            <div key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm">
-              <div>
-                <Link className="font-semibold text-ck-blue hover:underline" to={`/tasks/${t.id}`}>
-                  {t.title}
-                </Link>
-                <p className="text-xs text-slate-500">{t.status}</p>
+            <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Link className="font-semibold text-ck-blue hover:underline" to={`/tasks/${t.id}`}>
+                    {t.title}
+                  </Link>
+                  <p className="text-xs text-slate-500">
+                    Status: <span className="font-semibold">{t.status}</span>
+                    {t.budget_inr != null && <> · Budget: ₹{Number(t.budget_inr).toFixed(0)}</>}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="ck-btn-secondary !py-1 !text-xs" onClick={() => toggleFeatured(t.id, t.featured)}>
+                    {t.featured ? "Unfeature" : "Feature"}
+                  </button>
+                  <button type="button" className="text-xs text-red-600" onClick={() => deleteTask(t.id)}>
+                    Delete
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button type="button" className="ck-btn-secondary !py-1 !text-xs" onClick={() => toggleFeatured(t.id, t.featured)}>
-                  {t.featured ? "Unfeature" : "Feature"}
-                </button>
-                <button type="button" className="text-xs text-red-600" onClick={() => deleteTask(t.id)}>
-                  Delete
-                </button>
-              </div>
+
+              {/* Release payment controls — only for in_progress tasks */}
+              {t.status === "in_progress" && (
+                <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Release Payment:</span>
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-1.5 text-xs font-bold text-white"
+                    style={{ background: "linear-gradient(135deg,#059669,#10b981)" }}
+                    onClick={async () => {
+                      if (!confirm(`Pay student for "${t.title}"? This releases escrowed funds to the student and marks the task as completed.`)) return;
+                      try {
+                        await api(`/api/admin/tasks/${t.id}/release-payment`, { method: "POST", body: { release_to: "student" } });
+                        setMsg("✅ Payment released to student");
+                        refresh();
+                      } catch (e) { setMsg("❌ " + (e.data?.error || e.message)); }
+                    }}
+                  >
+                    💸 Pay Student
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-1.5 text-xs font-bold text-white"
+                    style={{ background: "linear-gradient(135deg,#d97706,#f59e0b)" }}
+                    onClick={async () => {
+                      if (!confirm(`Refund client for "${t.title}"? This returns escrowed funds to the client and cancels the task.`)) return;
+                      try {
+                        await api(`/api/admin/tasks/${t.id}/release-payment`, { method: "POST", body: { release_to: "client" } });
+                        setMsg("✅ Escrow refunded to client");
+                        refresh();
+                      } catch (e) { setMsg("❌ " + (e.data?.error || e.message)); }
+                    }}
+                  >
+                    🔄 Refund Client
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

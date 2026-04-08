@@ -47,6 +47,7 @@ CREATE TABLE tasks (
   assigned_student_id UUID REFERENCES users(id) ON DELETE SET NULL,
   accepted_bid_id UUID,
   featured BOOLEAN NOT NULL DEFAULT FALSE,
+  messages JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
