@@ -1,10 +1,22 @@
-const base = import.meta.env.VITE_API_URL || "";
+import { getBackendUrl } from "./utils/config.js";
+
+let baseUrl = "";
+
+// Load config on app start
+(async () => {
+  baseUrl = await getBackendUrl();
+})();
 
 export function getToken() {
   return localStorage.getItem("ck_token");
 }
 
 export async function api(path, options = {}) {
+  // Ensure base URL is loaded
+  if (!baseUrl) {
+    baseUrl = await getBackendUrl();
+  }
+  
   const headers = { ...(options.headers || {}) };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -12,7 +24,7 @@ export async function api(path, options = {}) {
     headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(options.body);
   }
-  const res = await fetch(`${base}${path}`, { ...options, headers });
+  const res = await fetch(`${baseUrl}${path}`, { ...options, headers });
   const text = await res.text();
   let data;
   try {
@@ -32,5 +44,5 @@ export async function api(path, options = {}) {
 export function assetUrl(path) {
   if (!path) return "";
   if (path.startsWith("http")) return path;
-  return `${base}${path}`;
+  return `${baseUrl}${path}`;
 }
